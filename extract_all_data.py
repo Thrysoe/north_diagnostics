@@ -135,5 +135,6 @@ if __name__=="__main__":
   
   plt.legend()
   plt.show()
-  plt.savefig(f"{path_to_figure}machine_data{shot})
+  plt.savefig(f"{path_to_figure}/machine_data{shot}")
+
 
