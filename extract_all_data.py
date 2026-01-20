@@ -70,7 +70,7 @@ def read_probe_data(shot, path_to_data, m_i, A, T_sweep, k_B, e):
     elif bias_type == 'temperature':
       if i==0:
         N = int(len(t)/T_sweep) #Number of temperature measurements possible, take a full sweep to be unbothered by hysterisis effects
-        data = np.zeros(N, 51))
+        data = np.zeros((N, 51))
         data[:,0] = range(N)*T_sweep + Tsweep/2
       for j in range(N):
         start, end = get_time_indices(j*T_sweep, (j+1)*T_sweep)
@@ -136,3 +136,4 @@ if __name__=="__main__":
   plt.legend()
   plt.show()
   plt.savefig(f"{path_to_figure}machine_data{shot})
+
