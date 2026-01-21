@@ -1,13 +1,17 @@
 """
-Extract all data from the DDAQ and CRIO files and plot it. Both .tdms file must be saved in the data folder, but there is a possibility to change the path file 
+Extract all data from the DDAQ and CRIO files and plot it. Both .tdms file must be saved in the data folder, but there is a possibility to change the path file
 at the beginning of the main program.
 Usefull for further data treatment and save all usefull data in a .txt file.
 Define shot number just after the main programm begins.
 """
 
+#Get the other programs and modules
+!git clone https://github.com/thrysoe/north_diagnostics.git -q
+!pip install nptdms -q
+
 #Import all useful libraries
 import nptdms
-import scipy.optimize import curve_fit
+from scipy.optimize import curve_fit
 from north_diagnostics.diagnostics import Probe, Diagnostic
 import matplotlib.pyplot as plt
 import numpy as np
@@ -17,7 +21,7 @@ def current_fit(U, I_isat, k_BT_e, U_f):
   """Function fitted by scipy in the transition function of the I-V curve for electron temperature measurements"""
   e0 = 1.60E-19 # in C
   return I_isat*(np.exp(e0*(U-U_f)/k_BT_e)-1)
-  
+
 def read_machine_data(shot, path_to_data):
   """
   Read the channels:  1 (Light sensor)
@@ -32,29 +36,29 @@ def read_machine_data(shot, path_to_data):
 
   #Define the time interval of the study (the mask variable)
   t_start = 0
-  t_end = machine_file['Data']['Time'][-1]
-  mask = (machine_file['Data']['Time'][:] >= t_start) & (machine_file['Data']['Time'][:] <= t_end)
+  t_end = file['Data']['Time'][-1]
+  mask = (file['Data']['Time'][:] >= t_start) & (file['Data']['Time'][:] <= t_end)
 
   #Extracting all machine parameters
-  data[:,0] = t
+  t = file['Data']['Time'][mask]
   data = np.zeros((len(t), 6))
-  head = 'Time; Light sensor; Coil current; Pressure sensor; LFS power; HFS power'
   data[:,0] = t*1E-3 # in s
-  data[:,1] = machine_file['Data']['Light'][mask] # in ??; whatever, not for a quantitative analysis
-  data[:,2] = machine_file['Data']['I_TF'][mask] # in A
-  data[:,3] = machine_file['Data']['Pressure'][mask]*1E2 # in Pa
-  data[:,4] = machine_file['Data']['LFSset'][mask]*450/3000 # in W
-  data[:,5] = machine_file['Data']['HFSset'][mask]*450/3000 # in W
+  data[:,1] = file['Data']['Light'][mask] # in ??; whatever, not for a quantitative analysis
+  data[:,2] = file['Data']['I_TF'][mask] # in A
+  data[:,3] = file['Data']['Pressure'][mask]*1E2 # in Pa
+  data[:,4] = file['Data']['LFSset'][mask]*450/3000 # in W
+  data[:,5] = file['Data']['HFSset'][mask]*450/3000 # in W
   return data
 
 def read_probe_data(shot, path_to_data, m_i, A, T_sweep, k_B, e):
   """
-  Read all the probes channels which are n_channel=n_probe+14. 
+  Read all the probes channels which are n_channel=n_probe+14.
   Saved in a .txt files in the Data folder.
   """
-  #Useful variables
+  #Initialisation of probe variable
   probe = {}
-  data = np.zeros((len(t), 51))
+  t_start=0
+  t_end=-1
 
   #Read data file
   for i in range(Probe.TOTAL_PROBES):
@@ -71,7 +75,7 @@ def read_probe_data(shot, path_to_data, m_i, A, T_sweep, k_B, e):
       if i==0:
         N = int(len(t)/T_sweep) #Number of temperature measurements possible, take a full sweep to be unbothered by hysterisis effects
         data = np.zeros((N, 51))
-        data[:,0] = range(N)*T_sweep + Tsweep/2
+        data[:,0] = np.array(range(N))*T_sweep + T_sweep/2
       for j in range(N):
         start, end = get_time_indices(j*T_sweep, (j+1)*T_sweep)
         guess = [0.1, 1E-19, 10]
@@ -85,7 +89,7 @@ def read_probe_data(shot, path_to_data, m_i, A, T_sweep, k_B, e):
 #Main program: plot all machine and some probe data to verify that the shot "looks fine"
 if __name__=="__main__":
   #Input parameters
-  shot = 9974
+  shot = 9774
   A_gas = 4 #Helium 4
   T_sweep = 13.33E-3 #period of the sweep for electronic temperature measurements in s
   bias_type = 'temperature' #Probes can be biased to measure 'density' or 'temperature' (the same bias is applied on every probe)
@@ -104,37 +108,39 @@ if __name__=="__main__":
   #Generate the data
   machine_data = read_machine_data(shot, path_to_data)
   probe_data = read_probe_data(shot, path_to_data, m_i, A, T_sweep, k_B, e)
-  
+
   #Saving all data in the Data folder
   head = 'Time; Light sensor; Coil current; Pressure sensor; LFS power; HFS power in SI units'
   np.savetxt(f"{path_to_data}machine_data{shot}.txt", machine_data, delimiter=';', header=head)
   head = 'Time; probes in the numerical order in SI units'
   np.savetxt(f"{path_to_data}probe_data{shot}.txt", probe_data, delimiter=';', header=head)
-  
+
   #Plot and save figures
   plt.subplot(2,2,1)
   plt.plot(machine_data[:,0]*1E3, machine_data[:,1])
   plt.xlabel('time (ms)')
   plt.ylabel('light sensor signal (U.A.)')
-  
+
   plt.subplot(2,2,2)
   plt.plot(machine_data[:,0]*1E3, machine_data[:,2])
   plt.xlabel('time (ms)')
   plt.ylabel('Coil current (A)')
-  
+
   plt.subplot(2,2,3)
   plt.plot(machine_data[:,0]*1E3, machine_data[:,3])
   plt.xlabel('time (ms)')
   plt.ylabel('Pressure (Pa)')
-  
+
   plt.subplot(2,2,4)
   plt.plot(machine_data[:,0]*1E3, machine_data[:,4], label='LFS Power')
   plt.plot(machine_data[:,0]*1E3, machine_data[:,5], label='HFS Power')
   plt.xlabel('time (ms)')
   plt.ylabel('Heating Power (W)')
-  
+
   plt.legend()
   plt.show()
   plt.savefig(f"{path_to_figure}/machine_data{shot}")
+  plt.savefig(f"{path_to_figure}/machine_data{shot}")
+
 
 
