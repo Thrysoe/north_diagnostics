@@ -1,7 +1,7 @@
 """
 Extract all data from the DDAQ and CRIO files and plot it. Both .tdms file must be saved in the data folder, but there is a possibility to change the path file
 at the beginning of the main program.
-Usefull for further data treatment and save all usefull data in a .txt file.
+Useful for further data treatment and save all data in a .txt file.
 Define shot number just after the main programm begins.
 """
 
@@ -57,8 +57,6 @@ def read_probe_data(shot, path_to_data, m_i, A, T_sweep, k_B, e):
   """
   #Initialisation of probe variable
   probe = {}
-  t_start=0
-  t_end=-1
 
   #Read data file
   for i in range(Probe.TOTAL_PROBES):
@@ -141,6 +139,7 @@ if __name__=="__main__":
   plt.show()
   plt.savefig(f"{path_to_figure}/machine_data{shot}")
   plt.savefig(f"{path_to_figure}/machine_data{shot}")
+
 
 
 
