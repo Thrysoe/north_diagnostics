@@ -1,0 +1,28 @@
+"""
+Extract all data from the DDAQ and CRIO files and plot it. Both .tdms file must be saved in the data folder, but there is a possibility to change the path file
+at the beginning of the main program.
+Usefull for further data treatment and save all usefull data in a .txt file.
+Define shot number just after the main programm begins.
+"""
+
+#Get the other programs and modules
+!git clone https://github.com/thrysoe/north_diagnostics.git -q
+!pip install nptdms -q
+
+#Import all useful libraries
+
+
+# Define all useful functions
+
+
+#Main program: plot all machine and some probe data to verify that the shot "looks fine"
+if __name__=="__main__":
+  #Input parameters
+  shot = 9774
+  A_gas = 4 #Helium 4
+  T_sweep = 13.33E-3 #period of the sweep for electronic temperature measurements in s
+  bias_type = 'temperature' #Probes can be biased to measure 'density' or 'temperature' (the same bias is applied on every probe)
+  path_to_data = './north_diagnostics/Data/'
+  path_to_figure = './north_diagnostics/Figures/'
+
+  #Steps to be achieved : extract data from txt files/plot a map of the vessel with probes/add on it some contour plot/assemble images in a movie
