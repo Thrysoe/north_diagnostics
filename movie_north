@@ -13,40 +13,49 @@ import matplotlib.pyplot as plt
 from north.Diagnostics import Probe
 
 # Define all useful functions
-def plot_2D_data(data, path_to_figure, time):
+def plot_2D_data(data, path_to_figure, time, vmin, vmax):
   """
   Takes the data from the txt files and probe position file to build the vessel, the probes and the movie of raw or fluctuating data.
   Images shall not be saved separetely.
   """
-  #Extract the relevant data at that time 
-  curr_data = data[time,:]
-
   #Plot the vessel and the probes
   theta = np.linspace(0, 2*np.pi, 250)
   x_loc = 250 + 125*np.cos(theta)
   y_loc = 125*np.sin(theta)
   plt.plot(x_loc, y_loc, label='Vessel boundaries')
 
-  #Plot the probes
+  #Plot the probes and get their positions
+  r, z = [], []
   for i in range(TOTAL_PROBES.Probe):
     x_p, y_p = Probe.position['r'], Probe.position['z']
+    r.append(x_p)
+    z.append(y_p)
     plt.plot(x_p, y_p, marker='o', edgecolors='k', facecolors='w' if activated_probes[i] else 'r')
+    
+  #Add all data at this time on the plot
+  curr_data = data[time,:]
 
-  #Add all data at this time
+  grid_r, grid_z = np.meshgrid(np.linspace(250-125, 250+125, 100), np.linspace(-125, 125, 100))
+  mask = (grid_r - 250)**2 + (grid_z - 0)**2 > 125**2
+
+  c_interpolator = RBFInterpolator(np.column_stack((r, z)), c, neighbors=7)
+  grid_c = c_interpolator(np.column_stack((grid_r.ravel(), grid_z.ravel()))).reshape(grid_r.shape)
+  grid_c[mask] = np.nan  # Set outside the circle to NaN
+
+  plt.contourf(grid_r, grid_z, grid_c, levels = 50, cmap = 'inferno_r', vmin = vmin, vmax = vmax)
+  #plt.scatter(r, z, c = [i*1e3 for i in c ], marker='o', edgecolors='k', cmap = 'inferno_r', vmin = vmin*1e3, vmax = vmax*1e3)
+
+  cbar = plt.colorbar(scatter, orientation='horizontal')
+  cbar.set_label('Ion Saturation Current [mA]')
+  cbar.ax.invert_xaxis()
 
   #Add a legend
   plt.xlabel('r (mm)')
   plt.ylabel('z (mm)')
   plt.legend()
-  return 
-
-def save_data_movie(shot, bias_type, path_to_data, path_to_figure):
-  """
-  Takes a sequence of images and turn it into a video.
-  To be saved in a .avi format in the Figures folder.
-  """
-  return
-
+  plt.savefig(f"{path_to_figure}/{shot}_{bias_type}_{data_type}/time.png")
+  plt.close()
+  return f"image {str(time)} processed"
 
 #Main program: plot all machine and some probe data to verify that the shot "looks fine"
 if __name__=="__main__":
@@ -70,6 +79,14 @@ if __name__=="__main__":
     else:
       activated_probes.append(False)
 
+  #Parameters for plotting a single colorbar 
+  k = 3
+  mean, std = np.mean(data), np.std(data)
+  vmin, vmax = mean - k*std, mean + k*std
+
   #Plot all images of the vessel + the probes + the data for each time
+  for i in range(len(data[:,0])):
+    output=plot_2D_data(data, path_to_figure, time, vmin, vmax)
+    print(output)
 
   #Save those images in amovie (.avi or .tiff) => to be found in the figure folder
