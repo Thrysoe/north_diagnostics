@@ -14,10 +14,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 import scipy.interpolate as sci
 import os
+import cv2
 from north_diagnostics.diagnostics import Probe
 
 # Define all useful functions
-def plot_2D_data(data, path_to_figure, time, vmin, vmax):
+def plot_2D_data(data, path_to_figure, time, vmin, vmax, bias_type, data_type):
   """
   Takes the data from the txt files and probe position file to build the vessel, the probes and the movie of raw or 
   fluctuating data.
@@ -54,10 +55,8 @@ def plot_2D_data(data, path_to_figure, time, vmin, vmax):
   grid_c[mask] = np.nan  # Set outside the circle to NaN
 
   #Creates the data plot with its colorbar
-  contourf=plt.contourf(grid_r, grid_z, grid_c, levels = 50, cmap = 'inferno_r', vmin = vmin, vmax = vmax)
-  cbar = plt.colorbar(contourf, orientation='vertical')
-  cbar.set_label(f"{data_type} {bias_type} SI")
-  cbar.ax.invert_xaxis()
+  contourf = plt.contourf(grid_r, grid_z, grid_c, levels = np.linspace(vmin, vmax, 50), cmap = 'inferno_r')
+  plt.colorbar(contourf, orientation='vertical', label=f"{data_type} {bias_type} SI")
 
   #Add a legend, save and close
   plt.axis('equal')
@@ -70,6 +69,32 @@ def plot_2D_data(data, path_to_figure, time, vmin, vmax):
   plt.close(fig=fig)
   return f"image {str(time)} processed"
 
+def video_2D(data, path_to_figure, bias_type, data_type, fps):
+  """
+  Takes the images in the appropriate figure folder and concanate them into a video .avi file.
+  This function assumes that the images have already been generated and saved by the previous function.
+  """
+  #Create figure 
+  image_folder = f"{path_to_figure}/{shot}_{bias_type}_{data_type}/"
+  video_name = f"{path_to_figure}/{shot}_{bias_type}_{data_type}/{shot}_{bias_type}_{data_type}.avi"
+  images = [img for img in os.listdir(image_folder) if img.endswith((".jpg", ".jpeg", ".png"))]
+
+  # Set frame from the first image
+  frame = cv2.imread(os.path.join(image_folder, images[0]))
+  height, width, layers = frame.shape
+
+  # Video writer to create .avi file
+  video = cv2.VideoWriter(video_name, cv2.VideoWriter_fourcc(*'DIVX'), fps, (width, height))
+
+  # Appending images to video
+  for image in images:
+    video.write(cv2.imread(os.path.join(image_folder, image)))
+
+  # Release the video file
+  video.release()
+  cv2.destroyAllWindows()
+  return f"Video is generated in the {image_folder} folder"
+
 #Main program: plot all machine and some probe data to verify that the shot "looks fine"
 if __name__=="__main__":
   #Input parameters
@@ -78,6 +103,7 @@ if __name__=="__main__":
   data_type = 'raw' #We may be interested in the raw data or in their fluctuations. As a consequence, put 'raw' or 'fluctuations'.
   path_to_data = './north_diagnostics/Data/'
   path_to_figure = './north_diagnostics/Figures/'
+  fps = 1 #frame rate of the video
 
   #Extract and cleaning data from .txt file
   data=np.genfromtxt(f"{path_to_data}probe_data{shot}.txt", delimiter=';', skip_header=1)
@@ -96,7 +122,7 @@ if __name__=="__main__":
   #Parameters for plotting a single colorbar
   k = 2
   mean, std = np.mean(data[:,1:]), np.std(data[:,1:])
-  vmin, vmax = mean - k*std, mean + k*std
+  vmin, vmax = mean - 1*std, mean + 10*std #To be modified when the temperature data won't be so weird
 
   #Create a folder to store data if it doesn't exist
   if not os.path.exists(f"{path_to_figure}/{shot}_{bias_type}_{data_type}/"):
@@ -104,8 +130,10 @@ if __name__=="__main__":
     print("A new directory for storing data was created")
 
   #Plot all images of the vessel + the probes + the data for each time
-  for i in range(3): #range(len(data[:,0])):
-    output=plot_2D_data(data, path_to_figure, i, vmin, vmax)
+  for i in range(6): #range(len(data[:,0])):
+    output=plot_2D_data(data, path_to_figure, i, vmin, vmax, bias_type, data_type)
     print(output)
 
-  #Save those images in amovie (.avi or .tiff) => to be found in the figure folder
+  #Save those images in a movie (.avi or .tiff) => to be found in the figure folder
+  output = video_2D(data, path_to_figure, bias_type, data_type, fps)
+  print(output)
