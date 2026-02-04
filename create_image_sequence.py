@@ -64,7 +64,7 @@ Main program: from now, all shall remain untouched.
 data = np.genfromtxt(f"{path_to_data}/probe_data{shot}.txt", delimiter=';', skip_header=1)
 bc = 2.26E-5 #in A
 if data_type=='fluctuations':
-  data[:,1:] = data[:,1:] - np.mean(data[:,1:], axis=0, keepdims=True)
+  data[:,1:] = data[:length,1:] - np.mean(data[:length,1:], axis=0, keepdims=True)
   bc = 0
 print(f"Data shot {shot} ({data_type}) loaded with success")
 
@@ -93,7 +93,9 @@ for i in range(length):
     output = utils.dau.plot_2D_data(data[i, :], shot, path_to_data, bias_type, data_type, i, activated_probes, vmin, vmax, fig, bc)
     plt.title(f"Shot {shot} {data_type} {bias_type} at time {data[i,0]:.6} s")
     plt.legend()
-    plt.savefig(f"{path_to_figure}/{shot}_{bias_type}_{data_type}/{i}.jpg")
+    std_format = "{:0"+str(int(np.log(length+1)/np.log(10))+1)+"d}"
+    std_format = std_format.format(i)
+    plt.savefig(f"{path_to_figure}/{shot}_{bias_type}_{data_type}/{std_format}.jpg")
     plt.clf()
     
     print(output)
