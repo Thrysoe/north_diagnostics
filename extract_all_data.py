@@ -3,18 +3,26 @@ This program was designed to run with python 3 in a Spyder environnement, with u
 and local libraries found in the folder diagnostics and utils of the environment.
 Only the imput parameter section should be modified.
 
-They are: - [shot] the number of the shot
-          - [bias_type] the way to bias the probes in the given shot
+They are: - [shot] int
+              the number of the shot
+          - [bias_type] str
+              the way to bias the probes in the given shot
               Note that it can only be a temperature or ion_saturation_current bias
               Other bias type will trigger an error message
-          - [T_sweep] the period of the sweep of the bias voltage. 
+          - [T_sweep] float
+              the period of the sweep of the bias voltage. 
               Only relevant for temperature mesurements
-          - [studied_channels] the number of the probe collecting data in the given shot
-          - [path_to_data] the name of the data folder with the full path to acceed it
-          - [path_to_figure] the name of the figure folder with the full path to acceed it
-          - [t_start] the start time of the data collection. 
+          - [studied_channels] numpy array
+              the number of the probe collecting data in the given shot
+          - [path_to_data] str
+              the name of the data folder with the full path to acceed it
+          - [path_to_figure] str
+              the name of the figure folder with the full path to acceed it
+          - [t_start] float
+              the start time of the data collection. 
               Must be between 0 and 1 second
-          - [t_end] the end time of the data collection. 
+          - [t_end] float
+              the end time of the data collection. 
               Must be between 0 and 1 second and greater than t_start
 
 
@@ -37,7 +45,7 @@ import os
 import utils.dau
 
 #Input parameters
-shot = 10164
+shot = 10168
 bias_type = 'ion_saturation_current'
 T_sweep = 1/75
 studied_probes = np.array([1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,38,39,40,41,42,43,44,45,46,47,48,49])
@@ -60,7 +68,7 @@ if not os.path.exists(f"{path_to_figure}/IandVplots_{shot}/"):
 
 #Generate the data and plot the curves
 machine_data = utils.dau.read_machine_data(shot, path_to_data)
-probe_data = utils.dau.read_probe_data(shot, path_to_data, bias_type, T_sweep, studied_probes-1, t_start, t_end, path_to_figure)
+probe_data = utils.dau.read_probe_data(shot, path_to_data, bias_type, T_sweep, studied_probes-1, t_start, t_end, path_to_figure, True)
 plt.close()
 
 #Saving all data in the Data folder
