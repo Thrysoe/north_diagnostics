@@ -301,6 +301,7 @@ def video_2D(data, shot, path_to_figure, bias_type, data_type, fps):
   image_folder = f"{path_to_figure}/{shot}_{bias_type}_{data_type}/"
   video_name = f"{path_to_figure}/{shot}_{bias_type}_{data_type}/{shot}_{bias_type}_{data_type}.avi"
   images = [img for img in os.listdir(image_folder) if img.endswith((".jpg", ".jpeg", ".png"))]
+  images.sort()
 
   # Set frame from the first image
   frame = cv2.imread(os.path.join(image_folder, images[0]))
