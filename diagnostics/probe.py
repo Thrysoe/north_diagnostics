@@ -1,6 +1,6 @@
 import json
-from .diagnostic import Diagnostic
-from ..utils.file_reader import read_probe_data
+from diagnostics.diagnostic import Diagnostic
+from utils.file_reader import read_probe_data
 import os
 
 class Probe(Diagnostic):
@@ -28,8 +28,8 @@ class Probe(Diagnostic):
         self.caching = caching
 
         utils_path = os.path.join(os.path.dirname(__file__), '../utils')
-        self.position_path = os.path.join(utils_path, 'probe_positions.json') 
-        self.mapping_path = os.path.join(utils_path, 'probe_mappings.json') if self.number > 9831 else os.path.join(utils_path, 'probe_mappings__deprecated.json')
+        self.position_path = os.path.join(utils_path, 'probe_positions.json')
+        self.mapping_path = os.path.join(utils_path, 'probe_mappings_new.json') if self.shot > 9831 else os.path.join(utils_path, 'probe_mappings__deprecated.json')
 
         self._active = None
         self._position = None
@@ -64,7 +64,7 @@ class Probe(Diagnostic):
                     channels.append(int(channel))
                 except (TypeError, ValueError):
                     continue  # Skip unmapped or non-numeric entries
-
+            print(f"read channels: {channels}")
             try:
                 time, bias_voltage, current_dict = read_probe_data(self.path, self.shot, channels)
                 Probe._data_cache[self.shot] = (time, bias_voltage, current_dict)
