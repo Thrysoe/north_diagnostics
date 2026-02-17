@@ -5,7 +5,7 @@ For specific details, see the documentation of each function.
 
 #Import libraries
 import nptdms
-from scipy.optimize import curve_fit
+import scipy.optimize as scopt
 import diagnostics.probe, diagnostics.diagnostic
 import matplotlib.pyplot as plt
 import numpy as np
@@ -28,11 +28,11 @@ def current_fit(U, I_isat, k_BT_e, U_f):
   Input:  - [U] int
               the bias voltage
           - [I_isat] int
-              the ion saturation current
+              the estimated ion saturation current
           - [k_BT_e] int
-              the electron temperature
+              the estimated electron temperature
           - [U_f] int
-              the floating potential
+              the estimated floating potential
           
   Output: The value of the probe current I for a given bias volatge I
   """
@@ -51,12 +51,15 @@ def rolling_average(data, av_size):
     Output: - [data_av_roll] numpy array
                 the rolling average of the data
     """
-    start_av = (av_size - 1) // 2
-    end_av = len(data) + (av_size - 1) // 2
-    data_roll_av = np.array([sum(data[i - (av_size - 1) // 2:i + (av_size - 1) // 2]) / av_size for i in range(start_av, end_av)])
+    #Define the boundary of the domain on which rolling average can be done
+    start_av = (av_size-1)//2
+    end_av = len(data)+(av_size-1)//2
+    
+    #Compute the rolling average
+    data_roll_av = np.array([np.mean(data[i-start_av:i+start_av]) for i in range(start_av, end_av)])
     return data_roll_av
 
-def read_machine_data(shot, path_to_data):
+def read_machine_data(shot, path):
   """
   Read the channels:  1 (Light sensor)
                       2 (Coil currents)
@@ -67,8 +70,8 @@ def read_machine_data(shot, path_to_data):
   
   Input:  - [shot] int
               the number of the studied shot
-          - [path_to_data] str
-              the name of the data folder with the full path to acceed it
+          - [path] str
+              the name of the folder in which all the code architecture is 
           
   Output: - [data] numpy array
               The data are stored into a 6 column table:
@@ -80,7 +83,7 @@ def read_machine_data(shot, path_to_data):
                   - 5: the heating power of the HFS system
   """
   #Read data file
-  file = nptdms.TdmsFile.read(f"{path_to_data}/CRIO{shot}.tdms")
+  file = nptdms.TdmsFile.read(f"{path}/Data/CRIO{shot}.tdms")
 
   #Define the time interval of the study (the mask variable)
   t_start = 0
@@ -90,7 +93,7 @@ def read_machine_data(shot, path_to_data):
   #Extracting all machine parameters
   t = file['Data']['Time'][mask]
   data = np.zeros((len(t), 6))
-  data[:,0] = t*1E-6 # in s
+  data[:,0] = t*1E-3 # in s
   data[:,1] = file['Data']['Light'][mask] # in ??; whatever, not for a quantitative analysis
   data[:,2] = file['Data']['I_TF'][mask] # in A
   data[:,3] = file['Data']['Pressure'][mask]*1E2 # in Pa
@@ -98,7 +101,7 @@ def read_machine_data(shot, path_to_data):
   data[:,5] = file['Data']['HFSset'][mask]*450/3000 # in W
   return data
 
-def read_probe_data(shot, path_to_data, bias_type, T_sweep, studied_probes, t_start, t_end, path_to_figure, plot_curves):
+def read_probe_data(shot, path, bias_type, T_sweep, studied_probes, t_start, t_end, plot_curves):
   """
   Read all the activated probe channels which correspondance is given in the mappings file in the utils 
   folder. Saved in a .txt files in the Data folder.
@@ -106,23 +109,21 @@ def read_probe_data(shot, path_to_data, bias_type, T_sweep, studied_probes, t_st
   
   Input:  - [shot] int
               the number of the studied shot
-          - [path_to_data] str
-              the name of the data folder with the full path to acceed it
+          - [path] str
+              the name of the folder in which all the code architecture is 
           - [bias_type] str
               the way used to bias the probes, which changes the quantity measured by it. Note 
               that it can only be a temperature or ion_saturation_current bias. Other bias type will 
               trigger an error message.
           - [T_sweep] float
               the period of the bias voltage sweep. Only relevant for temperature measurement.
-          - [studied_channels] str
+          - [studied_channels] numpy array
               the list of the channels activated for the analysis
           - [t_start] float
               the start time of the data collection. Must be between 0 and 1 second.
           - [t_end] float
               the end time of the data collection. Must be between 0 and 1 second and greater 
               than t_start.
-          - [path_to_figure] str
-              the name of the figure folder with the full path to acceed it
           - [plot_curves] boolean
               the boolean variable to control if we plot test curves or not
               
@@ -135,35 +136,45 @@ def read_probe_data(shot, path_to_data, bias_type, T_sweep, studied_probes, t_st
   probe = {}
   k_B = 1.38E-23 #the Boltzmann constant in SI
 
-  #Read data file
   for i in studied_probes: 
-    probe[i] = diagnostics.Probe(path = path_to_data, shot = shot, number = i+1, caching = True)
+    #Read data file
+    probe[i] = diagnostics.Probe(path = f"{path}/Data", shot = shot, number = i+1, caching = True)
+    
+    #Extracting all data from probe i in the DDAQ file
     if i==0:
       ind_start, ind_end = probe[i].get_time_indices(t_start, t_end)
     t = probe[i].time[ind_start:ind_end] 
     U = probe[i].bias_voltage[ind_start:ind_end] 
     I = probe[i].current[ind_start:ind_end]
+    
+    #Collect data
     if bias_type == 'ion_saturation_current':
       if i==0:
         data = np.zeros((len(t), 51))
         data[:,0] = t
       data[:,i+1] = I 
+      
     elif bias_type == 'temperature':
       if i==0:
-        N = int((t_end-t_start)/T_sweep) #Number of temperature measurements possible, take a full sweep to be unbothered by hysterisis effects
+        #Number of temperature measurements possible
+        N = int((t_end-t_start)/T_sweep)
         data = np.zeros((N, 51))
         data[:,0] = np.array(range(N))*T_sweep + T_sweep/2 + t_start
+      #Fit the IV-curve to measure temperature
       for j in range(N):
         start, end = probe[i].get_time_indices(j*T_sweep, (j+1)*T_sweep)
         guess = [0.0001, 1E-18, 10]
-        popt, pcov = curve_fit(current_fit, U[start:end], I[start:end], guess)
+        popt, pcov = scopt.curve_fit(current_fit, U[start:end], I[start:end], guess)
         data[j,i+1] = popt[1]/k_B
+        
+    #Send an error message if there is a misspellin g the input parameters
     else:
       print('WARNING: the bias type is not recognized')
       sys.exit()
     
-    #Plot the I-t and V-t curves
+    #Plot the I-t and V-t curves if the plot_curves variable is True
     if plot_curves == True:
+        #Voltage bias curve
         plt.subplot(2,1,1)
         plt.plot(probe[i].time*1e3, probe[i].bias_voltage, color='k', linewidth=2.5)
         plt.xlim(0, 1000)
@@ -171,17 +182,18 @@ def read_probe_data(shot, path_to_data, bias_type, T_sweep, studied_probes, t_st
     
         plt.title(f"Shot {probe[i].shot} : Probe {probe[i].number}", fontsize=18)
     
+        #Probe current curve
         plt.subplot(2,1,2)
         plt.plot(probe[i].time*1e3, probe[i].current*1e3, color='k', linewidth=2.5)
         plt.xlim(0, 1000) 
         plt.xlabel("$t$ [ms]", fontsize=14)
         plt.ylabel("$I_{\\rm probe}$ [mA]", fontsize=14)
     
-        plt.savefig(f"{path_to_figure}/IandVplots_{shot}/probe{i+1}.png", dpi=300)
+        plt.savefig(f"{path}/Figures/IandVplots_{shot}/probe{i+1}.png", dpi=300)
         plt.clf()
   return data
 
-def plot_2D_data(data, shot, path_to_data, bias_type, data_type, time, activated_probes, vmin, vmax, fig, bc):
+def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes, vmin, vmax, fig, bc):
   """
   Takes the data from the txt files and probe position from the .json file in utils to build the vessel, 
   the probes and the image at a given time of raw or fluctuating data.
@@ -190,8 +202,8 @@ def plot_2D_data(data, shot, path_to_data, bias_type, data_type, time, activated
               the data array at time [time]
           - [shot] int
               the number of the studied shot
-          - [path_to_data] str
-              the name of the data folder with the full path to acceed it
+          - [path] str
+              the name of the folder in which all the code architecture is 
           - [bias_type] str
               the way used to bias the probes, which changes the quantity measured by it. Note 
               that it can only be a temperature or ion saturation current bias. Other bias type will 
@@ -223,11 +235,22 @@ def plot_2D_data(data, shot, path_to_data, bias_type, data_type, time, activated
   x_loc = 250 + 125*np.cos(theta)
   y_loc = 125*np.sin(theta)
   plt.plot(x_loc, y_loc, label='Vessel boundaries', color='black')
+  
+  #Plot the heating zone
+  R0 = 250 # in mm
+  P_dist = 31 # in mm
+  sigma_x = 10 # in mm
+  sigma_y = 62.5 # in mm
+  x_abs = np.linspace(-2*sigma_x, 2*sigma_x, 250)
+  y_up = 2*sigma_y*np.sqrt(1-(x_abs/(2*sigma_x))**2)
+  y_down = -2*sigma_y*np.sqrt(1-(x_abs/(2*sigma_x))**2)
+  plt.plot(R0-P_dist+x_abs, y_up, label='Heating zone (2$\sigma$)', color='blue', linestyle='dashed')
+  plt.plot(R0-P_dist+x_abs, y_down, color='blue', linestyle='dashed')
 
   #Plot the probes and get their positions
   r, z = [], []
   for i in range(diagnostics.Probe.TOTAL_PROBES):
-    probe = diagnostics.Probe(path = path_to_data, shot = shot, number = i + 1, caching = True)
+    probe = diagnostics.Probe(path = f"{path}/Data", shot = shot, number = i + 1, caching = True)
     x_p, y_p = probe.position['r'], probe.position['z']
     if activated_probes[i]:
         r.append(x_p)
@@ -253,12 +276,13 @@ def plot_2D_data(data, shot, path_to_data, bias_type, data_type, time, activated
   mask = (grid_r - 250)**2 + (grid_z - 0)**2 > 125**2
 
   #Computing the map for a contour data plot
-  c_interpolator = sci.RBFInterpolator(all_loc, all_values) #, neighbors=7)
+  c_interpolator = sci.RBFInterpolator(all_loc, all_values) #, neighbors=6)
   grid_c = c_interpolator(np.column_stack((grid_r.ravel(), grid_z.ravel()))).reshape(grid_r.shape)
   grid_c[mask] = np.nan  # Set outside the circle to NaN
 
   #Creates the data plot with its colorbar
-  contourf = plt.contourf(grid_r, grid_z, grid_c, levels = np.linspace(vmin, vmax, 50), extend='both', cmap = 'inferno_r')
+  contourf = plt.contourf(grid_r, grid_z, grid_c, levels = np.linspace(vmin, vmax, 50), extend='both', 
+                          cmap = 'inferno_r')
   plt.colorbar(contourf, orientation='vertical', label=f"{data_type} {bias_type} SI")
 
   #Add a legend, save and close
@@ -269,7 +293,7 @@ def plot_2D_data(data, shot, path_to_data, bias_type, data_type, time, activated
   
   return f"image {str(time)} processed"
 
-def video_2D(data, shot, path_to_figure, bias_type, data_type, fps):
+def video_2D(data, data_origin, shot, current_value, path, bias_type, data_type, fps):
   """
   Takes the images in the appropriate figure folder and concanate them into a video .avi file.
   This function assumes that the images have already been generated and saved by the previous function.
@@ -279,10 +303,15 @@ def video_2D(data, shot, path_to_figure, bias_type, data_type, fps):
   
   Input:  - [data] numpy array
               the full array of data collected from the .txt file with the header removed
+          - [data_origin] str
+              the way data were collected. 
+              Can be experiment or simulation.
           - [shot] int
               the number of the studied shot
-          - [path_to_figure] str
-              the name of the figure folder with the full path to acceed it
+          - [current_value] float
+              the value of the vertical current
+          - [path] str
+              the name of the folder in which all the code architecture is 
           - [bias_type] str
               the way used to bias the probes, which changes the quantity measured by it. Note 
               that it can only be a temperature or ion saturation current bias. Other bias type will 
@@ -298,8 +327,13 @@ def video_2D(data, shot, path_to_figure, bias_type, data_type, fps):
               procedure happened.
   """
   #Create figure 
-  image_folder = f"{path_to_figure}/{shot}_{bias_type}_{data_type}/"
-  video_name = f"{path_to_figure}/{shot}_{bias_type}_{data_type}/{shot}_{bias_type}_{data_type}.avi"
+  if data_origin=='experiment':
+      image_folder = f"{path}/Figures/{shot}_{bias_type}_{data_type}/"
+      video_name = f"{path}/Figures/{shot}_{bias_type}_{data_type}/{shot}_{bias_type}_{data_type}.avi"
+  else:
+      image_folder = f"{path}/Figures/{int(current_value)}_{bias_type}_{data_type}/"
+      video_name = f"{path}/Figures/{int(current_value)}_{bias_type}_{data_type}/simu_{int(current_value)}_{bias_type}_{data_type}.avi"
+  
   images = [img for img in os.listdir(image_folder) if img.endswith((".jpg", ".jpeg", ".png"))]
   images.sort()
 
@@ -319,14 +353,12 @@ def video_2D(data, shot, path_to_figure, bias_type, data_type, fps):
   cv2.destroyAllWindows()
   return f"Video is generated in the {image_folder} folder"
 
-def frequency_fft(data, studied_probe, time_step):
+def frequency_fft(data, time_step):
   """
   Takes the data from one probe at all times to calculate the modulus of the temporal FFT of the signal.
   
   Input:  - [data] numpy array
               the 1D data array
-          - [studied_probe] numpy array
-              the number of the probe on which FFT is done
           - [time_step] float
               the physical time step between two points in the data array
           
@@ -340,7 +372,7 @@ def frequency_fft(data, studied_probe, time_step):
   
   #Computes the associated frequencies
   n = data.size
-  f = np.fft.fftfreq(n, d = 1E-6)
+  f = np.fft.fftfreq(n, d = time_step)
   
   freq, spectrum = f[0:int(n/2-1)], np.abs(t_spectrum[0:int(n/2-1)])
   return freq, spectrum
@@ -352,7 +384,7 @@ def spatial_fft(data):
   """
   return 
 
-def plot_spectrogram_fft(data, shot, current_value, path_to_figure, studied_probe, data_origin, time_step, NFFT):
+def plot_spectrogram_fft(data, shot, current_value, path, studied_probe, data_origin, time_step, NFFT):
   """
   Takes the data from one probe at all times to plot a PSD colormap.
   
@@ -362,8 +394,8 @@ def plot_spectrogram_fft(data, shot, current_value, path_to_figure, studied_prob
               the number of the studied shot
           - [current_value] float
               the value of the current in the vertical coils
-          - [path_to_figure] str
-              the name of the figure folder with the full path to acceed it
+          - [path] str
+              the name of the folder in which all the code architecture is 
           - [studied_probe] numpy array
               the number of the probe on which FFT is done
           - [data_origin] str
@@ -379,7 +411,8 @@ def plot_spectrogram_fft(data, shot, current_value, path_to_figure, studied_prob
               to notify that the plotting procedure happened.
   """
   #Computes the f-t spectrogram and its associated colorbar
-  spectrum, freqs, t, im = plt.specgram(data, Fs=1/time_step, cmap='viridis', mode='psd', scale='dB', NFFT=NFFT, noverlap=NFFT//2)
+  spectrum, freqs, t, im = plt.specgram(data, Fs=1/time_step, cmap='viridis', mode='psd', 
+                                        scale='dB', NFFT=NFFT, noverlap=NFFT//2)
   plt.colorbar(im, orientation='vertical', label="ion saturation current SI")
 
   #Add a legend, save and clear figure
@@ -390,16 +423,16 @@ def plot_spectrogram_fft(data, shot, current_value, path_to_figure, studied_prob
   
   if data_origin == 'experiment':
       plt.title(f"Shot {shot} ion saturation current PSD spectrogram probe {studied_probe}")
-      plt.savefig(f"{path_to_figure}/{shot}_spectrogram/probe{studied_probe}.png")
+      plt.savefig(f"{path}/Figures/{shot}_spectrogram/probe{studied_probe}.png")
 
   elif data_origin == 'simulation': 
       plt.title(f"Ion saturation current PSD spectrogram probe {studied_probe}")
-      plt.savefig(f"{path_to_figure}/simu_spectrogram_{int(current_value)}/probe{studied_probe}.png")
+      plt.savefig(f"{path}/Figures/simu_spectrogram_{int(current_value)}/probe{studied_probe}.png")
   
   plt.clf()
   return f"Probe {studied_probe} processed"
 
-def stat_analysis(data, shot, current_value, path_to_figure, data_origin, studied_probe, bias_type, fig, k):
+def stat_analysis(data, shot, current_value, path, data_origin, studied_probe, bias_type, fig, k):
   """
   Takes the data from all the probes to plot their distribution function. 
   Then plot a map of the fourth first statistic moments. 
@@ -411,8 +444,8 @@ def stat_analysis(data, shot, current_value, path_to_figure, data_origin, studie
               the number of the studied shot
           - [current_value] float
               the value of the current in the vertical coils
-          - [path_to_figure] str
-              the name of the figure folder with the full path to acceed it
+          - [path] str
+              the name of the folder in which all the code architecture is 
           - [data_origin] str
               the way data were collected. Can be experiment or simulation
           - [studied_probe] numpy array
@@ -444,18 +477,18 @@ def stat_analysis(data, shot, current_value, path_to_figure, data_origin, studie
   lab[k] = r'$-\sigma$'
   lab[k+1] = r'$0$'
   lab[k+2] = r'$+\sigma$'
-  plt.xticks(range(-k, k+1), )
+  plt.xticks(range(-k, k+1))
   plt.ylabel("Probability density function centered reduced")
   plt.title(f'Probability density function of {bias_type} of probe {studied_probe}')
   
   #Save data
   if data_origin == 'experiment':
       plt.title(f"Shot {shot} ion saturation current probability density function of {bias_type} of probe {studied_probe}")
-      plt.savefig(f"{path_to_figure}/{shot}_stat/probe{studied_probe}.png")
+      plt.savefig(f"{path}/Figures/{shot}_stat/probe{studied_probe}.png")
 
   elif data_origin == 'simulation': 
       plt.title(f"Shot {shot} ion saturation current probability density function of {bias_type} of probe {studied_probe}")
-      plt.savefig(f"{path_to_figure}/simu_stat_{int(current_value)}/probe{studied_probe}.png")
+      plt.savefig(f"{path}/Figures/simu_stat_{int(current_value)}/probe{studied_probe}.png")
   
   plt.clf()
   
