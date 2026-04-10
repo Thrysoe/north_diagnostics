@@ -1,6 +1,4 @@
 """
-This program was designed to run with python 3 in a Spyder environnement, with usual packages plus npTDMS
-and local libraries found in the folder diagnostics and utils of the environment.
 Only the imput parameter section should be modified.
 
 They are: - [shot] int
@@ -33,9 +31,9 @@ U-t curves to see if all of the data collected aren't anomalous.
 
 #Find the path to local libraries (modify the PYTHON PATH)
 import sys
-sys.path.append('E:\\north_diagnostics\\diagnostics')
-sys.path.append('E:\\north_diagnostics\\utils')
-sys.path.append('E:\\north_diagnostics')
+sys.path.append('C:\\Users\\tulla\\Perso\\north_diagnostics\\diagnostics')
+sys.path.append('C:\\Users\\tulla\\Perso\\north_diagnostics\\utils')
+sys.path.append('C:\\Users\\tulla\\Perso\\north_diagnostics')
 
 #Import all useful libraries
 import matplotlib.pyplot as plt
@@ -43,15 +41,19 @@ import numpy as np
 import os
 import utils.dau
 
-#Input parameters
-shot = 10168
+
+
+"""
+Input parameters
+"""
+shot = 10919
 bias_type = 'ion_saturation_current'
-T_sweep = 1/75 # in s, one other the sweeping voltage frequency
-studied_probes = np.array([1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,19,20,21,22,23,24,25,
-                           26,27,28,29,30,31,32,33,38,39,40,41,42,43,44,45,46,47,48,49])
-path = 'E:/north_diagnostics'
+T_sweep = 50 # in s, one other the sweeping voltage frequency
+studied_probes = np.array([1,2,3,5,6,7,8,9,10,13,14,15,17,18,19,20,21,23,24,25,
+                           26,28,29,30,31,32,33,38,39,41,42,44,45,46,47,48,49])
+path = 'C:/Users/tulla/Perso/north_diagnostics'
 t_start = 300E-3 # in s
-t_end = 400E-3 # in s
+t_end = 310E-3 # in s
 
 
 
@@ -77,8 +79,8 @@ head = 'Time; Light sensor; Coil current; Pressure sensor; LFS power; HFS power 
 np.savetxt(f"{path}/Data/machine_data{shot}.txt", machine_data, delimiter=';', header=head)
 
 #Probes data
-head = 'Time; probes in the numerical order in SI units'
-np.savetxt(f"{path}/Data/probe_data{shot}.txt", probe_data, delimiter=';', header=head)
+#head = 'Time; probes in the numerical order in SI units'
+#np.savetxt(f"{path}/Data/probe_data{shot}.txt", probe_data, delimiter=';', header=head)
 
 #Plot and save machine parameters
 fig = plt.figure(figsize=(10,10))
@@ -111,5 +113,4 @@ plt.ylabel('Heating Power (W)')
 #Add legend and save
 plt.legend()
 plt.show()
-plt.savefig(f"{path}/Figures/machine_data{shot}")
-plt.close(fig)
+plt.savefig(f"{path}/Figures/machine_data/machine_data{shot}")
