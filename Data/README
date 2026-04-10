@@ -1,1 +1,5 @@
 #Folder for collected and analyzed data
+There are two main type of data files:
+    - The CRIO files contain machine data for a given shot
+    - The DDAQ files contain probe data + some machine data
+Some .txt files produced by the programs or simulation can be found in there and are meant to be re-used by other programs.
