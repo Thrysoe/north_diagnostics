@@ -15,6 +15,7 @@ import cv2
 import diagnostics.probe
 import sys
 import scipy.stats as scst
+import scipy.signal as scs
 
 
 
@@ -58,6 +59,26 @@ def rolling_average(data, av_size):
     #Compute the rolling average
     data_roll_av = np.array([np.mean(data[i-start_av:i+start_av]) for i in range(start_av, end_av)])
     return data_roll_av
+
+def median_filter(data, med_size):
+    """
+    Computes the median of the points of a 1D array on a length med_size. Can be used to smooth noisy data.
+    
+    Input:  - [data] numpy array
+                the one dimensional data array to smooth
+            - [av_size] int
+                the length of the segment on which the median will be calculated
+            
+    Output: - [data_av_roll] numpy array
+                the median filter of the data
+    """
+    #Define the boundary of the domain on which rolling average can be done
+    start_av = (med_size-1)//2
+    end_av = len(data)+(med_size-1)//2
+    
+    #Compute the rolling average
+    data_med_av = np.array([np.median(data[i-start_av:i+start_av]) for i in range(start_av, end_av)])
+    return data_med_av
 
 def read_machine_data(shot, path):
   """
@@ -143,9 +164,10 @@ def read_probe_data(shot, path, bias_type, T_sweep, studied_probes, t_start, t_e
     #Extracting all data from probe i in the DDAQ file
     if i==0:
       ind_start, ind_end = probe[i].get_time_indices(t_start, t_end)
+      ind_Pon, ind_Poff = probe[i].get_time_indices(90E-3, 910E-3)
     t = probe[i].time[ind_start:ind_end] 
     U = probe[i].bias_voltage[ind_start:ind_end] 
-    I = probe[i].current[ind_start:ind_end]
+    I = probe[i].current[ind_start:ind_end] - np.mean(probe[i].current[:ind_Pon])
     
     #Collect data
     if bias_type == 'ion_saturation_current':
@@ -163,9 +185,47 @@ def read_probe_data(shot, path, bias_type, T_sweep, studied_probes, t_start, t_e
       #Fit the IV-curve to measure temperature
       for j in range(N):
         start, end = probe[i].get_time_indices(j*T_sweep, (j+1)*T_sweep)
-        guess = [0.0001, 1E-18, 10]
+        guess = [0.0001, 1E-18, -10]
         popt, pcov = scopt.curve_fit(current_fit, U[start:end], I[start:end], guess)
         data[j,i+1] = popt[1]/k_B
+        
+    elif bias_type == 'potential':
+      if i==0:
+        #Number of potential measurements possible
+        N = int((t_end-t_start)/T_sweep)
+        data = np.zeros((N, 51))
+        data[:,0] = np.array(range(N))*T_sweep + T_sweep/2 + t_start
+      #Fit the IV-curve to measure potential
+      for j in range(N):
+        start, end = probe[i].get_time_indices(j*T_sweep, (j+1)*T_sweep)
+        guess = [0.0001, 1E-18, -10]
+        popt, pcov = scopt.curve_fit(current_fit, U[start:end], I[start:end], guess)
+        data[j,i+1] = popt[2]
+        
+    elif bias_type == 'sweep':
+      if i==0:
+        #Number of sweep measurements possible
+        N = int((t_end-t_start)/T_sweep)
+        data = np.zeros((N, 51, 6))
+        data[:,0,0] = np.array(range(N))*T_sweep + T_sweep/2 + t_start
+        data[:,0,1] = np.array(range(N))*T_sweep + T_sweep/2 + t_start
+        data[:,0,2] = np.array(range(N))*T_sweep + T_sweep/2 + t_start
+      #Smoothing of the data
+      I_smooth = scs.savgol_filter(median_filter(I, 10), 100, 6)
+      #Fit the IV-curve to measure Iisat, temperature and potential
+      for j in range(N):
+        start, end = probe[i].get_time_indices(j*T_sweep, (j+1)*T_sweep)
+        guess = [-1E-4, 1E-18, -10]
+        uj = U[start:end]
+        ij = I_smooth[start:end]
+        ind = [i for i in range(len(uj)) if uj[i] < 12]
+        popt, pcov = scopt.curve_fit(current_fit, uj[ind], ij[ind], guess)
+        data[j, i+1, 0] = - popt[0]
+        data[j, i+1, 1] = popt[1]/k_B
+        data[j, i+1, 2] = popt[2]
+        data[j, i+1, 3] = 2*np.sqrt(np.abs(pcov[0,0]/popt[0]))
+        data[j, i+1, 4] = 2*np.sqrt(np.abs(pcov[1,1]/popt[1]))
+        data[j, i+1, 5] = 2*np.sqrt(np.abs(pcov[2,2]/popt[2]))
         
     #Send an error message if there is a misspellin g the input parameters
     else:
@@ -174,26 +234,36 @@ def read_probe_data(shot, path, bias_type, T_sweep, studied_probes, t_start, t_e
     
     #Plot the I-t and V-t curves if the plot_curves variable is True
     if plot_curves == True:
-        #Voltage bias curve
-        plt.subplot(2,1,1)
-        plt.plot(probe[i].time*1e3, probe[i].bias_voltage, color='k', linewidth=2.5)
-        plt.xlim(0, 1000)
-        plt.ylabel("$V_{\\rm bias}$ [V]", fontsize=14)
-    
-        plt.title(f"Shot {probe[i].shot} : Probe {probe[i].number}", fontsize=18)
-    
-        #Probe current curve
-        plt.subplot(2,1,2)
-        plt.plot(probe[i].time*1e3, probe[i].current*1e3, color='k', linewidth=2.5)
-        plt.xlim(0, 1000) 
-        plt.xlabel("$t$ [ms]", fontsize=14)
-        plt.ylabel("$I_{\\rm probe}$ [mA]", fontsize=14)
-    
-        plt.savefig(f"{path}/Figures/IandVplots_{shot}/probe{i+1}.png", dpi=300)
-        plt.clf()
+        if bias_type == 'ion_saturation_current':
+            #Voltage bias curve
+            plt.subplot(2,1,1)
+            plt.plot(probe[i].time*1e3, probe[i].bias_voltage, color='k', linewidth=2.5)
+            plt.xlim(0, 1000)
+            plt.ylabel("$V_{\\rm bias}$ [V]", fontsize=14)
+        
+            plt.title(f"Shot {probe[i].shot} : Probe {probe[i].number}", fontsize=18)
+        
+            #Probe current curve
+            plt.subplot(2,1,2)
+            plt.plot(probe[i].time*1e3, (probe[i].current - np.mean(probe[i].current[:ind_Pon]))*1e3, color='k', linewidth=2.5)
+            plt.xlim(0, 1000) 
+            plt.xlabel("$t$ [ms]", fontsize=14)
+            plt.ylabel("$I_{\\rm probe}$ [mA]", fontsize=14)
+        
+            plt.savefig(f"{path}/Figures/IandVplots_{shot}/probe{i+1}.png", dpi=300)
+            plt.clf()
+        else:
+            #Plot the IV curve
+            plt.plot(probe[i].bias_voltage, (probe[i].current - np.mean(probe[i].current[:ind_Pon]))*1e3, color='k', linewidth=2.5)
+            plt.xlabel("$V_{\\rm bias}$ [V]", fontsize=14)
+            plt.ylabel("$I$ [mA]", fontsize=14)
+        
+            plt.title(f"Shot {probe[i].shot} : Probe {probe[i].number}", fontsize=18)
+            plt.savefig(f"{path}/Figures/IandVplots_{shot}/probe{i+1}.png", dpi=300)
+            plt.clf()
   return data
 
-def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes, vmin, vmax, fig, bc):
+def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes, vmin, vmax, fig, bc, layout=True):
   """
   Takes the data from the txt files and probe position from the .json file in utils to build the vessel, 
   the probes and the image at a given time of raw or fluctuating data.
@@ -222,6 +292,8 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
               Create a unique figure to avoid being sorrounded by ploting window
           - [bc] float
               The boundary condition that must be applied at the walls
+          - [layout] boolean
+              If True (default value), the layout is plotted. Set False to have no layout
           
   Output: - [output] str
               The program plots the vessel, the activated probes in white (others in red) and the colormap 
@@ -234,29 +306,51 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
   theta = np.linspace(0, 2*np.pi, 250)
   x_loc = 250 + 125*np.cos(theta)
   y_loc = 125*np.sin(theta)
-  plt.plot(x_loc, y_loc, label='Vessel boundaries', color='black')
-  
+  if layout == True:
+      plt.plot(x_loc, y_loc, label='Vessel boundaries', color='black')
+      
   #Plot the heating zone
+  file = nptdms.TdmsFile.read(f"{path}/Data/CRIO{shot}.tdms")
+  t_machine = np.array(file['Data']['Time'])*1E-3
+  I_TF = file['Data']['I_TF'] # in A
+  
+  #Machine parameter
+  mu_0 = 4*np.pi*1E-7 # in H/m
+  N_TF = 8
+  N_winding = 12
+  R0 = 250E-3 # in m
+  f_R = 2.45E9 #MW frequency
+  e = 1.6E-19 #Elementary charge
+  me = 9.11E-31 #Mass of an electron
+
+  #Convert current into the magnetic field and resonnance layer position
+  ind = np.argmin(np.abs(t_machine-data[0]))
+  B_0_tor = mu_0*(N_TF*N_winding)*I_TF[ind]/(2*np.pi*R0)
+  P_dist = e*B_0_tor*R0/(me*2*np.pi*f_R)-R0 # in mm
+  
+  #Conversion to mm units
   R0 = 250 # in mm
-  P_dist = 31 # in mm
+  P_dist = P_dist*1E3 # in mm
   sigma_x = 10 # in mm
   sigma_y = 62.5 # in mm
   x_abs = np.linspace(-2*sigma_x, 2*sigma_x, 250)
   y_up = 2*sigma_y*np.sqrt(1-(x_abs/(2*sigma_x))**2)
   y_down = -2*sigma_y*np.sqrt(1-(x_abs/(2*sigma_x))**2)
-  plt.plot(R0-P_dist+x_abs, y_up, label='Heating zone (2$\sigma$)', color='blue', linestyle='dashed')
-  plt.plot(R0-P_dist+x_abs, y_down, color='blue', linestyle='dashed')
-
+  if layout == True:
+      plt.plot(R0+P_dist+x_abs, y_up, label='Heating zone (2$\sigma$)', color='blue', linestyle='dashed')
+      plt.plot(R0+P_dist+x_abs, y_down, color='blue', linestyle='dashed')
+    
   #Plot the probes and get their positions
   r, z = [], []
   for i in range(diagnostics.Probe.TOTAL_PROBES):
-    probe = diagnostics.Probe(path = f"{path}/Data", shot = shot, number = i + 1, caching = True)
-    x_p, y_p = probe.position['r'], probe.position['z']
-    if activated_probes[i]:
-        r.append(x_p)
-        z.append(y_p)
-    plt.plot(x_p, y_p, marker='o', markeredgecolor='k', markerfacecolor='w' if activated_probes[i] else 'r')
-    plt.text(x_p, y_p-10, str(i+1), color='black', fontsize=8)
+      probe = diagnostics.Probe(path = f"{path}/Data", shot = shot, number = i + 1, caching = True)
+      x_p, y_p = probe.position['r'], probe.position['z']
+      if activated_probes[i]:
+          r.append(x_p)
+          z.append(y_p)
+      if layout == True:
+          plt.plot(x_p, y_p, marker='o', markeredgecolor='k', markerfacecolor='w' if activated_probes[i] else 'r')
+          plt.text(x_p, y_p-10, str(i+1), color='black', fontsize=8)
   loc_probe = np.column_stack((r, z))
 
   #Add all data at this time on the plot and plot only relevant data
@@ -281,19 +375,24 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
   grid_c[mask] = np.nan  # Set outside the circle to NaN
 
   #Creates the data plot with its colorbar
-  contourf = plt.contourf(grid_r, grid_z, grid_c, levels = np.linspace(vmin, vmax, 50), extend='both', 
-                          cmap = 'inferno_r')
-  plt.colorbar(contourf, orientation='vertical', label=f"{data_type} {bias_type} SI")
-
-  #Add a legend, save and close
-  plt.axis('equal')
-  plt.xlim((250-140, 250+140)) 
-  plt.xlabel('r (mm)')
-  plt.ylabel('z (mm)')
+  if layout == True:
+      contourf = plt.contourf(grid_r, grid_z, grid_c, levels = np.linspace(vmin, vmax, 50), extend='both', 
+                              cmap = 'inferno_r')
+      plt.colorbar(contourf, orientation='vertical', label=f"{data_type} {bias_type} SI")
+    
+      #Add a legend, save and close
+      plt.axis('equal')
+      plt.xlim((250-140, 250+140)) 
+      plt.xlabel('r (mm)')
+      plt.ylabel('z (mm)')
+  else:
+      contourf = plt.contourf(grid_r, grid_z, grid_c, levels = np.linspace(vmin, vmax, 50), extend='both', 
+                              cmap = 'gray')
+      plt.axis('equal')
   
   return f"image {str(time)} processed"
 
-def video_2D(data, data_origin, shot, current_value, path, bias_type, data_type, fps):
+def video_2D(data, data_origin, shot, current_value, path, bias_type, data_type, fps, start_time):
   """
   Takes the images in the appropriate figure folder and concanate them into a video .avi file.
   This function assumes that the images have already been generated and saved by the previous function.
@@ -320,6 +419,8 @@ def video_2D(data, data_origin, shot, current_value, path, bias_type, data_type,
               the type of data plotted. Can be raw data or fluctuations (data minus mean value).
           - [fps] int
               the frame rate of the saved movie 
+          - [start] int
+              the time in ms at which the movie begins
           
   Output: - [output] str
               The program plots the vessel, the activated probes in white (others in red) and the colormap 
@@ -329,10 +430,10 @@ def video_2D(data, data_origin, shot, current_value, path, bias_type, data_type,
   #Create figure 
   if data_origin=='experiment':
       image_folder = f"{path}/Figures/{shot}_{bias_type}_{data_type}/"
-      video_name = f"{path}/Figures/{shot}_{bias_type}_{data_type}/{shot}_{bias_type}_{data_type}.avi"
+      video_name = f"{path}/Figures/{shot}_{bias_type}_{data_type}/{shot}_{bias_type}_{data_type}_{start_time}.avi"
   else:
       image_folder = f"{path}/Figures/{int(current_value)}_{bias_type}_{data_type}/"
-      video_name = f"{path}/Figures/{int(current_value)}_{bias_type}_{data_type}/simu_{int(current_value)}_{bias_type}_{data_type}.avi"
+      video_name = f"{path}/Figures/{int(current_value)}_{bias_type}_{data_type}/simu_{int(current_value)}_{bias_type}_{data_type}_{start_time}.avi"
   
   images = [img for img in os.listdir(image_folder) if img.endswith((".jpg", ".jpeg", ".png"))]
   images.sort()
@@ -377,12 +478,30 @@ def frequency_fft(data, time_step):
   freq, spectrum = f[0:int(n/2-1)], np.abs(t_spectrum[0:int(n/2-1)])
   return freq, spectrum
 
-def spatial_fft(data):
+def spatial_fft(data, space_step):
   """
-  Takes the data from all the probes at a given time to make a spectral analysis of it
-  In project, not yet written
+  Takes the data from all the probes at a given time to plot 2D Fourier transform
+  
+  Input:  - [data] numpy array
+              the 1D data array
+          - [space_step] float
+              the physical space step between two points in the data array
+          
+  Output: - [k] numpy array
+              The array of positive frequencies associated with the FFT.
+          - [spectrum] numpy array
+              The modulus of the FFT spectrum of the signal.
   """
-  return 
+  #Computes the FFT
+  xy_spectrum = np.fft.fft2(data)
+  
+  #Computes the associated frequencies
+  n, m = np.shape(data)
+  kx = np.fft.fftfreq(n, d = space_step)
+  ky = np.fft.fftfreq(m, d = space_step)
+  
+  k_x, k_y, spectrum = kx[0:int(n/2-1)], ky[0:int(n/2-1)], np.abs(xy_spectrum[0:int(n/2-1), 0:int(n/2-1)])
+  return k_x, k_y, spectrum
 
 def plot_spectrogram_fft(data, shot, current_value, path, studied_probe, data_origin, time_step, NFFT):
   """
@@ -411,14 +530,14 @@ def plot_spectrogram_fft(data, shot, current_value, path, studied_probe, data_or
               to notify that the plotting procedure happened.
   """
   #Computes the f-t spectrogram and its associated colorbar
-  spectrum, freqs, t, im = plt.specgram(data, Fs=1/time_step, cmap='viridis', mode='psd', 
+  spectrum, freqs, t, im = plt.specgram(data, Fs=1/time_step, cmap='inferno', mode='psd', 
                                         scale='dB', NFFT=NFFT, noverlap=NFFT//2)
   plt.colorbar(im, orientation='vertical', label="ion saturation current SI")
 
   #Add a legend, save and clear figure
   plt.xlabel('time (s)')
   plt.ylabel('frequency (Hz)')
-  plt.yscale("log")
+  #plt.yscale("log")
   plt.ylim((10,1/(2*time_step)))
   
   if data_origin == 'experiment':
@@ -474,10 +593,10 @@ def stat_analysis(data, shot, current_value, path, data_origin, studied_probe, b
   plt.hist((data-m)/sigma, bins=25, range=(-k, k), density=True)
   plt.xlabel(f'{bias_type} centered reduced')
   lab = [str(i)+r'$\sigma$' for i in range(-k, k+1)]
-  lab[k] = r'$-\sigma$'
-  lab[k+1] = r'$0$'
-  lab[k+2] = r'$+\sigma$'
-  plt.xticks(range(-k, k+1))
+  lab[k-1] = r'$-\sigma$'
+  lab[k] = r'$0$'
+  lab[k+1] = r'$\sigma$'
+  plt.xticks(range(-k, k+1), labels=lab)
   plt.ylabel("Probability density function centered reduced")
   plt.title(f'Probability density function of {bias_type} of probe {studied_probe}')
   
