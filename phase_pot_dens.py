@@ -1,4 +1,6 @@
 """
+NOT UPDATED WITH LATEST CHAGES
+
 This program was designed to run with python 3 in a Spyder environnement, with usual packages plus local libraries
 found in the folder diagnostics and utils of the environment. 
 Only the imput parameter section should be modified.
