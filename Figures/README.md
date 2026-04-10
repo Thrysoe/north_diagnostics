@@ -1,3 +1,4 @@
 #Folder for figures
+
 Here can be found all the results given by the data analysis programs. They are organized by shots and type of treatment. See the documentation of 
 each specific program to know where a given figure is stored.
