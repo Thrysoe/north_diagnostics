@@ -1,4 +1,6 @@
 """
+NOT UPDATED WITH LATEST CHANGES
+
 This program was designed to run with python 3 in a Spyder environnement, with usual packages local 
 libraries found in the folder utils of the environment. 
 Only the imput parameter section should be modified.
