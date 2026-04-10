@@ -214,12 +214,19 @@ def read_probe_data(shot, path, bias_type, T_sweep, studied_probes, t_start, t_e
       I_smooth = scs.savgol_filter(median_filter(I, 10), 100, 6)
       #Fit the IV-curve to measure Iisat, temperature and potential
       for j in range(N):
+        #get the time indices for a given period
         start, end = probe[i].get_time_indices(j*T_sweep, (j+1)*T_sweep)
-        guess = [-1E-4, 1E-18, -10]
+        
+        #Take only the data before the electron saturation knee
         uj = U[start:end]
         ij = I_smooth[start:end]
+        
+        #Fit the curve
+        guess = [-1E-4, 1E-18, -10]
         ind = [i for i in range(len(uj)) if uj[i] < 12]
         popt, pcov = scopt.curve_fit(current_fit, uj[ind], ij[ind], guess)
+        
+        #Save the data
         data[j, i+1, 0] = - popt[0]
         data[j, i+1, 1] = popt[1]/k_B
         data[j, i+1, 2] = popt[2]
@@ -314,7 +321,7 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
   t_machine = np.array(file['Data']['Time'])*1E-3
   I_TF = file['Data']['I_TF'] # in A
   
-  #Machine parameter
+  #Machine parameter for magnetic field calculation and resonnance layer location
   mu_0 = 4*np.pi*1E-7 # in H/m
   N_TF = 8
   N_winding = 12
@@ -328,7 +335,7 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
   B_0_tor = mu_0*(N_TF*N_winding)*I_TF[ind]/(2*np.pi*R0)
   P_dist = e*B_0_tor*R0/(me*2*np.pi*f_R)-R0 # in mm
   
-  #Conversion to mm units
+  #Conversion to mm units and plot of the layer
   R0 = 250 # in mm
   P_dist = P_dist*1E3 # in mm
   sigma_x = 10 # in mm
