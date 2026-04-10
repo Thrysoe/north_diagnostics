@@ -1,6 +1,4 @@
 """
-This program was designed to run with python 3 in a Spyder environnement, with usual packages plus npTDMS 
-and local libraries found in the folder diagnostics and utils of the environment. 
 Only the imput parameter section should be modified.
 
 They are: - [shot] int
@@ -25,9 +23,9 @@ The plots are stored in a sub folder the Figure folder created if not existing.
 
 #Find the path to local libraries (modify the PYTHON PATH)
 import sys
-sys.path.append('E:\\north_diagnostics\\diagnostics')
-sys.path.append('E:\\north_diagnostics\\utils')
-sys.path.append('E:\\north_diagnostics')
+sys.path.append('C:\\Users\\tulla\\Perso\\north_diagnostics\\diagnostics')
+sys.path.append('C:\\Users\\tulla\\Perso\\north_diagnostics\\utils')
+sys.path.append('C:\\Users\\tulla\\Perso\\north_diagnostics')
 
 #Import all useful libraries
 import numpy as np
@@ -35,11 +33,15 @@ import matplotlib.pyplot as plt
 import os
 import utils.dau
 
-#Input parameters
+
+
+"""
+Input parameters
+"""
 shot = 10168
-path = 'E:/north_diagnostics'
-current_value = 0
-data_origin = 'simulation'
+path = 'C:/Users/tulla/Perso/north_diagnostics'
+current_value = 10
+data_origin = 'experiment'
 bias_type = 'ion_saturation_current'
 k = 3
 
@@ -52,11 +54,11 @@ Main program: from now, all shall remain untouched.
 #Extract and cleaning data from .txt file
 if data_origin == 'experiment':
       #Activated probes for that type of data
-      studied_probes = np.array([1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,19,20,21,22,23,24,25,
+      studied_probes = np.array([1,2,3,4,5,6,7,8,9,10,11,13,14,15,16,17,18,19,20,21,23,24,25,
                                26,27,28,29,30,31,32,33,38,39,40,41,42,43,44,45,46,47,48,49])
       all_data = utils.dau.read_probe_data(shot, path, 'ion_saturation_current', 1/75, studied_probes-1, 
                                          0, 1, False)
-      data = all_data[200000:800000, :]
+      data = all_data[150000:850000, :]
       print(f"Data shot {shot} loaded with success")
     
       #Create a folder to store data if it doesn't exist
@@ -96,6 +98,7 @@ for i in range(50):
         
 #Calculate statistical moments of all probes and plot their distribution function
 stat_data = np.zeros((4,51))
+stat_data[:, 0] = np.ones(4)*500000E-6
 fig = plt.figure(figsize=(10,10))
 for i in range(50):
     if activated_probes[i]:
@@ -120,7 +123,7 @@ for i in range(50):
 name_stat = ['mean', 'standard_deviation', 'skewness', 'kurtosis']
 bc = [np.mean(data[:,studied_probes]), 0, 0, 0]
 for i in range(4):
-    vmin, vmax = min(stat_data[i, :]), max(stat_data[i, :])
+    vmin, vmax = min(stat_data[i, studied_probes]), max(stat_data[i, studied_probes])
     output = utils.dau.plot_2D_data(stat_data[i, :], shot, path, bias_type, 'raw', i, activated_probes, 
                                     vmin, vmax, fig, bc[i])
     if data_origin == 'experiment':
@@ -135,5 +138,24 @@ for i in range(4):
         
     plt.clf()
     print(output)
+
+#Plot the repartition of the skewness and the kurtosis with the name of each probe
+for i in studied_probes:
+    plt.text(stat_data[2, i], stat_data[3, i]-0.09, str(i), color='black', fontsize=8)
+plt.scatter(stat_data[2, :], stat_data[3, :], color='blue', label='Data')
+
+#Fit with a shaure function
+model = np.polyfit(stat_data[2, :], stat_data[3, :], 2)
+print(f"Fit parameters: {model}")
+Sabs = np.linspace(-2, 2, 50)
+SvsK_model = model[0]*Sabs**2+model[1]*Sabs+model[2] #model[1]*np.log(freq[30000:]) + model[0]
+plt.plot(Sabs, SvsK_model, label=f'model: quadratic index {model[0]:.2f}')
+
+#Legend and save
+plt.xlabel('Skewness')
+plt.ylabel('Kurtosis')
+plt.title(f"Shot {shot} kurtosis as a function of skewness")
+plt.legend()
+plt.savefig(f"{path}/Figures/{shot}_stat/plot_skew_vs_kurt.jpg")
     
 plt.close()
