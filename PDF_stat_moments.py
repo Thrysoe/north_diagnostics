@@ -162,7 +162,7 @@ for i in studied_probes:
     plt.text(stat_data[2, i], stat_data[3, i]-0.09, str(i), color='black', fontsize=8)
 plt.scatter(stat_data[2, :], stat_data[3, :], color='blue', label='Data')
 
-#Fit with a shaure function
+#Fit with a sqaure function
 model, covmodel = np.polyfit(stat_data[2, :], stat_data[3, :], 2, cov=True)
 print(f"Fit parameters: {model} pm {2*np.sqrt(np.diag(covmodel))}")
 Sabs = np.linspace(-2.5, 2.5, 50)
