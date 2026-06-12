@@ -63,7 +63,6 @@ path = 'C:/Users/tulla/Perso/north_diagnostics'
 fps = 15
 start = 400000
 length = 1000
-sus_probes = [22]
 k = 2
 
 
@@ -124,7 +123,7 @@ print(f"Data ({data_type}) loaded with success")
 #Testing activated probes
 activated_probes = []
 for i in range(50):
-    if i+1 in studied_probes and i+1 not in sus_probes:
+    if i+1 in studied_probes:
         activated_probes.append(True)
     else:
         activated_probes.append(False)
