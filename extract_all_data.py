@@ -24,9 +24,8 @@ They are: - [shot] int
               Must be between 0 and 1 second and greater than t_start
 
 
-Extract all data from the DDAQ and CRIO files and plot it. Both .tdms file must be saved in the data folder.
-Save all useful data in a .txt file with a short header description, plot machine parameters and I-t and
-U-t curves to see if all of the data collected aren't anomalous.
+Extract all data from the DDAQ and CRIO files and plot the control parameters of the machine.
+Both .tdms file must be saved in the data folder.
 """
 
 #Find the path to local libraries (modify the PYTHON PATH)
@@ -46,7 +45,7 @@ import utils.dau
 """
 Input parameters
 """
-shot = 10919
+shot = 11233
 bias_type = 'ion_saturation_current'
 T_sweep = 50 # in s, one other the sweeping voltage frequency
 studied_probes = np.array([1,2,3,5,6,7,8,9,10,13,14,15,17,18,19,20,21,23,24,25,
@@ -75,8 +74,8 @@ plt.close()
 
 #Saving all data in the Data folder
 #Machine data
-head = 'Time; Light sensor; Coil current; Pressure sensor; LFS power; HFS power in SI units'
-np.savetxt(f"{path}/Data/machine_data{shot}.txt", machine_data, delimiter=';', header=head)
+#head = 'Time; Light sensor; Coil current; Pressure sensor; LFS power; HFS power in SI units'
+#np.savetxt(f"{path}/Data/machine_data{shot}.txt", machine_data, delimiter=';', header=head)
 
 #Probes data
 #head = 'Time; probes in the numerical order in SI units'
@@ -88,29 +87,37 @@ fig = plt.figure(figsize=(10,10))
 #Light sensor
 plt.subplot(2,2,1)
 plt.plot(machine_data[:,0], machine_data[:,1])
-plt.xlabel('time (s)')
-plt.ylabel('light sensor signal (U.A.)')
+plt.xlabel('time (s)', fontsize=13)
+plt.ylabel('light sensor signal (U.A.)', fontsize=13)
+plt.xticks(fontsize=13)
+plt.yticks(fontsize=13)
 
 #Toroidal current
 plt.subplot(2,2,2)
-plt.plot(machine_data[:,0], machine_data[:,2])
-plt.xlabel('time (s)')
-plt.ylabel('Coil current (A)')
+plt.plot(machine_data[:,0], machine_data[:,2]*1E-3)
+plt.xlabel('time (s)', fontsize=13)
+plt.ylabel('Coil current (kA)', fontsize=13)
+plt.xticks(fontsize=13)
+plt.yticks(fontsize=13)
 
 #Neutral gas pressure
 plt.subplot(2,2,3)
 plt.plot(machine_data[:,0], machine_data[:,3])
-plt.xlabel('time (s)')
-plt.ylabel('Pressure (Pa)')
+plt.xlabel('time (s)', fontsize=13)
+plt.ylabel('Pressure (Pa)', fontsize=13)
+plt.xticks(fontsize=13)
+plt.yticks(fontsize=13)
 
 #Heating power delivered by the micro-waves systems
 plt.subplot(2,2,4)
 plt.plot(machine_data[:,0], machine_data[:,4], label='LFS Power')
 plt.plot(machine_data[:,0], machine_data[:,5], label='HFS Power')
-plt.xlabel('time (s)')
-plt.ylabel('Heating Power (W)')
+plt.xlabel('time (s)', fontsize=13)
+plt.ylabel('Heating Power (W)', fontsize=13)
+plt.xticks(fontsize=13)
+plt.yticks(fontsize=13)
 
 #Add legend and save
-plt.legend()
+plt.legend(fontsize=13)
 plt.show()
 plt.savefig(f"{path}/Figures/machine_data/machine_data{shot}")
