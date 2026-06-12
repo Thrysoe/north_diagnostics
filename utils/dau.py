@@ -191,16 +191,9 @@ def read_probe_data(shot, path, bias_type, T_sweep, studied_probes, t_start, t_e
         
     elif bias_type == 'potential':
       if i==0:
-        #Number of potential measurements possible
-        N = int((t_end-t_start)/T_sweep)
-        data = np.zeros((N, 51))
-        data[:,0] = np.array(range(N))*T_sweep + T_sweep/2 + t_start
-      #Fit the IV-curve to measure potential
-      for j in range(N):
-        start, end = probe[i].get_time_indices(j*T_sweep, (j+1)*T_sweep)
-        guess = [0.0001, 1E-18, -10]
-        popt, pcov = scopt.curve_fit(current_fit, U[start:end], I[start:end], guess)
-        data[j,i+1] = popt[2]
+        data = np.zeros((len(t), 51))
+        data[:,0] = t
+      data[:,i+1] = I*213
         
     elif bias_type == 'sweep':
       if i==0:
@@ -211,7 +204,7 @@ def read_probe_data(shot, path, bias_type, T_sweep, studied_probes, t_start, t_e
         data[:,0,1] = np.array(range(N))*T_sweep + T_sweep/2 + t_start
         data[:,0,2] = np.array(range(N))*T_sweep + T_sweep/2 + t_start
       #Smoothing of the data
-      I_smooth = scs.savgol_filter(median_filter(I, 10), 100, 6)
+      I_smooth = scs.savgol_filter(median_filter(I, 10), 750, 5)
       #Fit the IV-curve to measure Iisat, temperature and potential
       for j in range(N):
         #get the time indices for a given period
@@ -225,6 +218,21 @@ def read_probe_data(shot, path, bias_type, T_sweep, studied_probes, t_start, t_e
         guess = [-1E-4, 1E-18, -10]
         ind = [i for i in range(len(uj)) if uj[i] < 12]
         popt, pcov = scopt.curve_fit(current_fit, uj[ind], ij[ind], guess)
+        
+        #Get an idea of the quality of the fit
+        if j == 0:
+            plt.grid()
+            plt.scatter(uj, I[start:end]*1e3, 3, color='k', label='Data')
+            plt.scatter(uj, I_smooth[start:end]*1e3, 3, color='b', label='Smoothed data')
+            plt.plot(uj, current_fit(uj, popt[0], popt[1], popt[2])*1e3, color='r', linewidth=2.5, label='Fit')
+            plt.xlabel("$V_{\\rm bias}$ [V]", fontsize=16)
+            plt.ylabel("$I_{\\rm probe}$ [mA]", fontsize=16)
+            plt.title(f"Shot {shot} : Probe {i+1}", fontsize=20)
+            plt.legend(fancybox=False,fontsize=14)
+    
+            plt.savefig(f'{path}/Figures/{shot}_{bias_type}_raw/fit_probe{i+1}.png', dpi=300)
+            
+            plt.clf()
         
         #Save the data
         data[j, i+1, 0] = - popt[0]
@@ -270,7 +278,7 @@ def read_probe_data(shot, path, bias_type, T_sweep, studied_probes, t_start, t_e
             plt.clf()
   return data
 
-def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes, vmin, vmax, fig, bc, layout=True):
+def plot_2D_data(data, shot, path, bias_type, data_type, data_origin, toroidal_current_value, time, activated_probes, vmin, vmax, fig, bc, layout=True):
   """
   Takes the data from the txt files and probe position from the .json file in utils to build the vessel, 
   the probes and the image at a given time of raw or fluctuating data.
@@ -287,6 +295,10 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
               trigger an error message.
           - [data_type] str
               the type of data plotted. Can be raw data or fluctuations (data minus mean value).
+          - [data_origin] str
+              the way data were collected. Can be experiment or simulation.
+          - [toroidal_current_value] float
+              the value of the current in the toroidal coils, only relevant when [data_origin] is simulation
           - [time] float
               the time at which the image is made
           - [activated_probes] numpy array
@@ -315,11 +327,20 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
   y_loc = 125*np.sin(theta)
   if layout == True:
       plt.plot(x_loc, y_loc, label='Vessel boundaries', color='black')
-      
+  
+  #Plot the limits of the probe mappings
+  plt.axhline(y=68.03+11.7, xmin=0.16, xmax=0.84, color = 'r', lw=3)
+  plt.axhline(y=-61.902-11.7, xmin=0.14, xmax=0.86, color = 'r', lw=3)
+  
   #Plot the heating zone
-  file = nptdms.TdmsFile.read(f"{path}/Data/CRIO{shot}.tdms")
-  t_machine = np.array(file['Data']['Time'])*1E-3
-  I_TF = file['Data']['I_TF'] # in A
+  if data_origin=='experiment':
+      file = nptdms.TdmsFile.read(f"{path}/Data/CRIO{shot}.tdms")
+      t_machine = np.array(file['Data']['Time'])*1E-3
+      I_TF = file['Data']['I_TF'] # in A
+      ind = np.argmin(np.abs(t_machine-data[0]))
+      I_tor = I_TF[ind]
+  elif data_origin=='simulation':
+      I_tor = toroidal_current_value #in A
   
   #Machine parameter for magnetic field calculation and resonnance layer location
   mu_0 = 4*np.pi*1E-7 # in H/m
@@ -329,23 +350,30 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
   f_R = 2.45E9 #MW frequency
   e = 1.6E-19 #Elementary charge
   me = 9.11E-31 #Mass of an electron
+  n0 = 3E16 #Density expected in NORTH
+  eps_0 = 8.85E-12 #Dielectric constant
 
   #Convert current into the magnetic field and resonnance layer position
-  ind = np.argmin(np.abs(t_machine-data[0]))
-  B_0_tor = mu_0*(N_TF*N_winding)*I_TF[ind]/(2*np.pi*R0)
+  B_0_tor = mu_0*(N_TF*N_winding)/(2*np.pi*R0)*I_tor
   P_dist = e*B_0_tor*R0/(me*2*np.pi*f_R)-R0 # in mm
+  
+  ope = np.sqrt(n0*e**2/(me*eps_0))
+  P_dist1 = e*B_0_tor*R0/(me*np.sqrt((2*np.pi*f_R)**2-ope**2))-R0 # in mm
   
   #Conversion to mm units and plot of the layer
   R0 = 250 # in mm
   P_dist = P_dist*1E3 # in mm
+  P_dist1 = P_dist1*1E3 # in mm
   sigma_x = 10 # in mm
   sigma_y = 62.5 # in mm
   x_abs = np.linspace(-2*sigma_x, 2*sigma_x, 250)
   y_up = 2*sigma_y*np.sqrt(1-(x_abs/(2*sigma_x))**2)
   y_down = -2*sigma_y*np.sqrt(1-(x_abs/(2*sigma_x))**2)
   if layout == True:
-      plt.plot(R0+P_dist+x_abs, y_up, label='Heating zone (2$\sigma$)', color='blue', linestyle='dashed')
-      plt.plot(R0+P_dist+x_abs, y_down, color='blue', linestyle='dashed')
+      plt.plot(R0+P_dist+x_abs, y_up, label='ECR Heating zone (2$\sigma$)', color='dodgerblue', linestyle='dashed')
+      plt.plot(R0+P_dist+x_abs, y_down, color='dodgerblue', linestyle='dashed')
+      #plt.plot(R0+P_dist1+x_abs, y_up, label='UH Heating zone (2$\sigma$)', color='green', linestyle='dashed')
+      #plt.plot(R0+P_dist1+x_abs, y_down, color='blue', linestyle='dashed')
     
   #Plot the probes and get their positions
   r, z = [], []
@@ -365,7 +393,7 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
   for i in range(diagnostics.Probe.TOTAL_PROBES):
       if activated_probes[i]:
           c.append(data[i+1])
-          
+      
   #Enforce a Dirichlet boundary condition (like in the numerical computation) at the vessel walls
   boundary_coordinates = np.column_stack((x_loc,y_loc))
   boundary_condition = np.zeros(boundary_coordinates.shape[0])+bc #2.26e-05 on 1mm2
@@ -377,7 +405,7 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
   mask = (grid_r - 250)**2 + (grid_z - 0)**2 > 125**2
 
   #Computing the map for a contour data plot
-  c_interpolator = sci.RBFInterpolator(all_loc, all_values) #, neighbors=6)
+  c_interpolator = sci.RBFInterpolator(all_loc, all_values) #, kernel='multiquadric', epsilon=1)
   grid_c = c_interpolator(np.column_stack((grid_r.ravel(), grid_z.ravel()))).reshape(grid_r.shape)
   grid_c[mask] = np.nan  # Set outside the circle to NaN
 
@@ -385,13 +413,17 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
   if layout == True:
       contourf = plt.contourf(grid_r, grid_z, grid_c, levels = np.linspace(vmin, vmax, 50), extend='both', 
                               cmap = 'inferno_r')
-      plt.colorbar(contourf, orientation='vertical', label=f"{data_type} {bias_type} SI")
+      cbar = plt.colorbar(contourf, orientation='vertical')#, label=f"{data_type} {bias_type} (mA)", size=14)
+      cbar.set_label(f"{data_type} {bias_type} (mA)", fontsize=18)
     
       #Add a legend, save and close
       plt.axis('equal')
       plt.xlim((250-140, 250+140)) 
-      plt.xlabel('r (mm)')
-      plt.ylabel('z (mm)')
+      plt.xlabel('r (mm)', fontsize=18)
+      plt.ylabel('z (mm)', fontsize=18)
+      plt.xticks(fontsize=18)
+      plt.yticks(fontsize=18)
+        
   else:
       contourf = plt.contourf(grid_r, grid_z, grid_c, levels = np.linspace(vmin, vmax, 50), extend='both', 
                               cmap = 'gray')
@@ -399,13 +431,12 @@ def plot_2D_data(data, shot, path, bias_type, data_type, time, activated_probes,
   
   return f"image {str(time)} processed"
 
-def video_2D(data, data_origin, shot, current_value, path, bias_type, data_type, fps, start_time):
+def video_2D(data, data_origin, shot, toroidal_current_value, vertical_current_value, path, bias_type, data_type, fps, start_time):
   """
   Takes the images in the appropriate figure folder and concanate them into a video .avi file.
   This function assumes that the images have already been generated and saved by the previous function.
   Be careful that the cv2 package is sensitive to the name of the folders and do not tolerate any special
   character.
-  PROBLEM: the movie created seems to shuffle images when they are concatenated.
   
   Input:  - [data] numpy array
               the full array of data collected from the .txt file with the header removed
@@ -414,8 +445,10 @@ def video_2D(data, data_origin, shot, current_value, path, bias_type, data_type,
               Can be experiment or simulation.
           - [shot] int
               the number of the studied shot
-          - [current_value] float
-              the value of the vertical current
+          - [toroidal_current_value] float
+              the value of the current in the toroidal coils, only relevant when [data_origin] is simulation
+          - [vertical_current_value] float
+              the value of the current in the vertical coils, only relevant when [data_origin] is simulation
           - [path] str
               the name of the folder in which all the code architecture is 
           - [bias_type] str
@@ -439,8 +472,8 @@ def video_2D(data, data_origin, shot, current_value, path, bias_type, data_type,
       image_folder = f"{path}/Figures/{shot}_{bias_type}_{data_type}/"
       video_name = f"{path}/Figures/{shot}_{bias_type}_{data_type}/{shot}_{bias_type}_{data_type}_{start_time}.avi"
   else:
-      image_folder = f"{path}/Figures/{int(current_value)}_{bias_type}_{data_type}/"
-      video_name = f"{path}/Figures/{int(current_value)}_{bias_type}_{data_type}/simu_{int(current_value)}_{bias_type}_{data_type}_{start_time}.avi"
+      image_folder = f"{path}/Figures/{int(vertical_current_value)}_{toroidal_current_value}_{bias_type}_{data_type}/"
+      video_name = f"{path}/Figures/{int(vertical_current_value)}_{toroidal_current_value}_{bias_type}_{data_type}/simu_{int(vertical_current_value)}_{toroidal_current_value}_{bias_type}_{data_type}_{start_time}.avi"
   
   images = [img for img in os.listdir(image_folder) if img.endswith((".jpg", ".jpeg", ".png"))]
   images.sort()
@@ -537,28 +570,31 @@ def plot_spectrogram_fft(data, shot, current_value, path, studied_probe, data_or
               to notify that the plotting procedure happened.
   """
   #Computes the f-t spectrogram and its associated colorbar
-  spectrum, freqs, t, im = plt.specgram(data, Fs=1/time_step, cmap='inferno', mode='psd', 
-                                        scale='dB', NFFT=NFFT, noverlap=NFFT//2)
-  plt.colorbar(im, orientation='vertical', label="ion saturation current SI")
+  spectrum, freqs, t, im = plt.specgram(data, Fs=1/time_step, cmap='turbo', mode='psd', 
+                                        scale='dB', NFFT=NFFT, noverlap=NFFT//2, vmin=-150, vmax=-100)
+  cbar = plt.colorbar(im, orientation='vertical')
+  cbar.set_label("PSD ion saturation current", fontsize=18)
 
   #Add a legend, save and clear figure
-  plt.xlabel('time (s)')
-  plt.ylabel('frequency (Hz)')
+  plt.xlabel('time (s)', fontsize=18)
+  plt.ylabel('frequency (Hz)', fontsize=18)
+  plt.xticks(fontsize=18)
+  plt.yticks(fontsize=18)
   #plt.yscale("log")
-  plt.ylim((10,1/(2*time_step)))
+  plt.ylim((NFFT,1E5))
   
   if data_origin == 'experiment':
-      plt.title(f"Shot {shot} ion saturation current PSD spectrogram probe {studied_probe}")
+      plt.title(f"Shot {shot} spectrogram probe {studied_probe}", fontsize=18)
       plt.savefig(f"{path}/Figures/{shot}_spectrogram/probe{studied_probe}.png")
 
   elif data_origin == 'simulation': 
-      plt.title(f"Ion saturation current PSD spectrogram probe {studied_probe}")
+      plt.title(f"Spectrogram probe {studied_probe}", fontsize=18)
       plt.savefig(f"{path}/Figures/simu_spectrogram_{int(current_value)}/probe{studied_probe}.png")
   
   plt.clf()
   return f"Probe {studied_probe} processed"
 
-def stat_analysis(data, shot, current_value, path, data_origin, studied_probe, bias_type, fig, k):
+def stat_analysis(data, shot, vertical_current_value, toroidal_current_value, path, data_origin, studied_probe, bias_type, fig, k):
   """
   Takes the data from all the probes to plot their distribution function. 
   Then plot a map of the fourth first statistic moments. 
@@ -568,7 +604,9 @@ def stat_analysis(data, shot, current_value, path, data_origin, studied_probe, b
               the 1D data array
           - [shot] int
               the number of the studied shot
-          - [current_value] float
+          - [vertical_current_value] float
+              the value of the current in the toroidal coils
+          - [toroidal_current_value] float
               the value of the current in the vertical coils
           - [path] str
               the name of the folder in which all the code architecture is 
@@ -598,14 +636,15 @@ def stat_analysis(data, shot, current_value, path, data_origin, studied_probe, b
   
   #Plot the probability density function
   plt.hist((data-m)/sigma, bins=25, range=(-k, k), density=True)
-  plt.xlabel(f'{bias_type} centered reduced')
+  plt.xlabel(f'{bias_type} centered reduced', fontsize=18)
   lab = [str(i)+r'$\sigma$' for i in range(-k, k+1)]
   lab[k-1] = r'$-\sigma$'
   lab[k] = r'$0$'
   lab[k+1] = r'$\sigma$'
-  plt.xticks(range(-k, k+1), labels=lab)
-  plt.ylabel("Probability density function centered reduced")
-  plt.title(f'Probability density function of {bias_type} of probe {studied_probe}')
+  plt.xticks(range(-k, k+1), labels=lab, fontsize=18)
+  plt.yticks(fontsize=18)
+  plt.ylabel("Probability density function centered reduced", fontsize=18)
+  plt.title(f'Probability density function of {bias_type} of probe {studied_probe}', fontsize=18)
   
   #Save data
   if data_origin == 'experiment':
@@ -614,7 +653,7 @@ def stat_analysis(data, shot, current_value, path, data_origin, studied_probe, b
 
   elif data_origin == 'simulation': 
       plt.title(f"Shot {shot} ion saturation current probability density function of {bias_type} of probe {studied_probe}")
-      plt.savefig(f"{path}/Figures/simu_stat_{int(current_value)}/probe{studied_probe}.png")
+      plt.savefig(f"{path}/Figures/simu_stat_{int(vertical_current_value)}_{toroidal_current_value}/probe{studied_probe}.png")
   
   plt.clf()
   
