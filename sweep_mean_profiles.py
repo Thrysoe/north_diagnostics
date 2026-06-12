@@ -1,4 +1,6 @@
 """
+NOT UPDATED WITH THE LATEST VERSION OF DAU
+
 Only the imput parameter section should be modified.
 
 They are: - [shot] int
